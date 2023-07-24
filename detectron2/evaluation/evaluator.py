@@ -100,6 +100,58 @@ class DatasetEvaluators(DatasetEvaluator):
         return results
 
 
+
+KERNEL = torch.tensor([[0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0],
+       [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+       [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+       [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+       [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+       [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+       [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+       [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+       [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+       [0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0],
+       [0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0]]).to(float).cuda()
+DILATION_ITERS = 1
+
+KERNEL = torch.ones((3, 3)).to(float).cuda()
+DILATION_ITERS = 4  # max 49.758 on r50
+
+
+DILATION_ITERS = 3
+
+
+import kornia
+from tqdm import tqdm
+import numpy as np
+
+def dilate(outputs):
+    # return
+    # print(outputs[0]['instances'].pred_masks.shape)
+    print('running dilation')
+    itrs = []
+    for output in outputs:
+        # kernel = torch.ones(3, 3).to(float).cuda()
+        kernel = KERNEL
+        
+        
+        masks = output['instances'].pred_masks.unsqueeze(dim=1).to(float)
+        
+        # print(masks.shape)
+        for i in range(len(masks)):
+            size = int(masks[i].sum())
+            iters = min(7, max(1, size // 500))
+            iters = DILATION_ITERS
+            itrs.append(iters)
+            for _ in range(iters):        
+                masks[i] = kornia.morphology.dilation(masks[i].unsqueeze(0).to(float), kernel, engine='convolution')[0]
+                
+        masks = masks.squeeze(dim=1).to(bool)
+        # print(masks.shape)
+        output['instances'].pred_masks = masks
+    # print(np.array(itrs))
+
+    
 def inference_on_dataset(
     model, data_loader, evaluator: Union[DatasetEvaluator, List[DatasetEvaluator], None]
 ):
@@ -161,6 +213,7 @@ def inference_on_dataset(
             total_compute_time += time.perf_counter() - start_compute_time
 
             start_eval_time = time.perf_counter()
+            dilate(outputs)
             evaluator.process(inputs, outputs)
             total_eval_time += time.perf_counter() - start_eval_time
 
